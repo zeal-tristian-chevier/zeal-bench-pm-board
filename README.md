@@ -1,36 +1,46 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Zeal Bench PM Board
 
-## Getting Started
+Tracking Internal Zeal Project Progress.
 
-First, run the development server:
+An interactive Kanban-style project management board built with Next.js, Supabase, and Google Auth.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+## Features
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+- **Board tab** — Kanban with To Do / In Progress / Done, drag-and-drop between columns, color-coded project pills, hover-reveal edit/delete actions, priority + due-date badges with live coloring (Overdue / This Week / Next Week / Future), per-column quick add, a full "New Task" modal, and four stacked filters (Projects · Assignees · Due Dates · Priorities) with live task count.
+- **Team tab** — Member cards with colored avatar initials, status pill, and project chips. Add / edit / remove with a swatch-picker avatar color.
+- **Projects tab** — Color-dotted project rows with status badge, description, lead, and hover-reveal remove. 10-color swatch picker.
+- **Auth** — Google OAuth via Supabase.
+- **Light / dark mode** via CSS variables, no gradients, flat UI, host font system.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Quick start
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+1. Install dependencies:
+   ```bash
+   npm install
+   ```
+2. Create a Supabase project at [supabase.com](https://supabase.com).
+3. In the Supabase dashboard → **Authentication → Providers → Google**, enable Google and paste your OAuth client ID / secret from Google Cloud Console. Add the redirect URL it shows (`https://<ref>.supabase.co/auth/v1/callback`) to Google Cloud.
+4. Run `supabase/schema.sql` in the Supabase SQL editor to create tables, RLS policies, and the `seed_default_board()` helper.
+5. Copy `.env.example` to `.env.local` and fill in:
+   ```
+   NEXT_PUBLIC_SUPABASE_URL=...
+   NEXT_PUBLIC_SUPABASE_ANON_KEY=...
+   NEXT_PUBLIC_SITE_URL=http://localhost:3000
+   ```
+6. Run the dev server:
+   ```bash
+   npm run dev
+   ```
+7. Sign in, then click **Load demo data** once to seed projects, members, and the sample tasks.
 
-## Learn More
+## Stack
 
-To learn more about Next.js, take a look at the following resources:
+- Next.js 15 (App Router) + TypeScript
+- Supabase (Postgres + RLS + Auth)
+- `@dnd-kit/core` for drag and drop
+- Plain CSS with CSS variables (no Tailwind components, just utility import — the UI is hand-built)
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Notes
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- All data is per-user; Row Level Security policies in `supabase/schema.sql` restrict each row to its owning `auth.uid()`.
+- The board uses optimistic updates for drag/drop, create, update, and delete.
