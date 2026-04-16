@@ -1,5 +1,6 @@
 export type Priority = "Low" | "Medium" | "High";
-export type ColumnKey = "To Do" | "In Progress" | "Done";
+export type ColumnKey = string;
+export const DEFAULT_COLUMNS: string[] = ["To Do", "In Progress", "Done"];
 export type ProjectStatus =
   | "Planning"
   | "In Progress"
@@ -40,6 +41,7 @@ export type Member = {
   role: string;
   status: MemberStatus;
   avatar_color: SwatchColor;
+  avatar_url: string | null;
   project_ids: string[];
   created_at: string;
 };
@@ -56,7 +58,6 @@ export type Task = {
   created_at: string;
 };
 
-export const COLUMNS: ColumnKey[] = ["To Do", "In Progress", "Done"];
 export const PRIORITIES: Priority[] = ["Low", "Medium", "High"];
 export const PROJECT_STATUSES: ProjectStatus[] = [
   "Planning",

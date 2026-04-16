@@ -5,38 +5,39 @@ import type {
   SwatchColor,
 } from "./types";
 
+// Pigment-style palette — shifted toward ink colors for an editorial feel.
 export const SWATCH_HEX: Record<SwatchColor, string> = {
-  blue: "#3b82f6",
-  teal: "#14b8a6",
-  orange: "#f97316",
-  violet: "#8b5cf6",
-  pink: "#ec4899",
-  green: "#22c55e",
-  red: "#ef4444",
-  amber: "#f59e0b",
-  slate: "#64748b",
-  cyan: "#06b6d4",
+  blue: "#2d4a7c",
+  teal: "#2f6b62",
+  orange: "#c26a45",
+  violet: "#6b4b7c",
+  pink: "#b5567b",
+  green: "#4a7c3e",
+  red: "#b54a3e",
+  amber: "#c49140",
+  slate: "#5e5a52",
+  cyan: "#3d7d8c",
 };
 
 export const PRIORITY_HEX: Record<Priority, string> = {
-  Low: "#22c55e",
-  Medium: "#f59e0b",
-  High: "#ef4444",
+  Low: "#4a7c3e",
+  Medium: "#c49140",
+  High: "#b54a3e",
 };
 
 export const MEMBER_STATUS_HEX: Record<MemberStatus, string> = {
-  Available: "#22c55e",
-  "On Project": "#f59e0b",
-  "Partially Available": "#14b8a6",
-  Unavailable: "#ef4444",
+  Available: "#4a7c3e",
+  "On Project": "#c49140",
+  "Partially Available": "#2f6b62",
+  Unavailable: "#b54a3e",
 };
 
 export const PROJECT_STATUS_HEX: Record<ProjectStatus, string> = {
-  Planning: "#64748b",
-  "In Progress": "#3b82f6",
-  "On Hold": "#f59e0b",
-  Complete: "#22c55e",
-  Cancelled: "#ef4444",
+  Planning: "#5e5a52",
+  "In Progress": "#2d4a7c",
+  "On Hold": "#c49140",
+  Complete: "#4a7c3e",
+  Cancelled: "#b54a3e",
 };
 
 export type DueBucket = "overdue" | "this-week" | "next-week" | "future" | "none";
@@ -54,11 +55,11 @@ export function dueBucket(date: string | null, today = new Date()): DueBucket {
 }
 
 export const DUE_HEX: Record<DueBucket, string> = {
-  overdue: "#ef4444",
-  "this-week": "#f59e0b",
-  "next-week": "#8b5cf6",
-  future: "#22c55e",
-  none: "#64748b",
+  overdue: "#b54a3e",
+  "this-week": "#c49140",
+  "next-week": "#6b4b7c",
+  future: "#4a7c3e",
+  none: "#5e5a52",
 };
 
 export function formatDueDate(date: string | null): string {

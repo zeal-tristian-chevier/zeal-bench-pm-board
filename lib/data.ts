@@ -71,6 +71,7 @@ export async function loadAll(): Promise<BoardData> {
     role: m.role,
     status: m.status as MemberStatus,
     avatar_color: m.avatar_color as SwatchColor,
+    avatar_url: (m.avatar_url as string | null) ?? null,
     project_ids: mpByMember.get(m.id) ?? [],
     created_at: m.created_at as string,
   }));
@@ -90,10 +91,55 @@ export async function loadAll(): Promise<BoardData> {
   return { projects, members, tasks };
 }
 
-export async function runSeed() {
+export async function syncSelfAvatar(
+  authUserId: string,
+  avatarUrl: string | null,
+  displayName: string | null,
+  userEmail: string | null,
+) {
+  if (!avatarUrl) return;
   const supabase = createClient();
-  const { error } = await supabase.rpc("seed_default_board");
-  if (error) throw error;
+
+  const { error: linkedErr } = await supabase
+    .from("members")
+    .update({ avatar_url: avatarUrl })
+    .eq("auth_user_id", authUserId);
+  if (linkedErr) throw linkedErr;
+
+  const candidates = new Set<string>();
+  const push = (s: string | null | undefined) => {
+    const v = (s ?? "").trim();
+    if (v) candidates.add(v.toLowerCase());
+  };
+  push(displayName);
+  if (userEmail) {
+    const local = userEmail.split("@")[0] ?? "";
+    push(local);
+    push(local.replace(/[._-]+/g, " "));
+    const parts = local.split(/[._-]+/).filter(Boolean);
+    if (parts.length >= 2) {
+      push(parts.map((p) => p[0].toUpperCase() + p.slice(1)).join(" "));
+    }
+  }
+  if (candidates.size === 0) return;
+
+  const { data: allMembers, error: selErr } = await supabase
+    .from("members")
+    .select("id,name");
+  if (selErr) throw selErr;
+
+  const ids = (allMembers ?? [])
+    .filter((m: { id: string; name: string }) =>
+      candidates.has(m.name.trim().toLowerCase()),
+    )
+    .map((m: { id: string }) => m.id);
+  if (ids.length === 0) return;
+
+  const { error: updErr } = await supabase
+    .from("members")
+    .update({ avatar_url: avatarUrl })
+    .in("id", ids);
+  if (updErr) throw updErr;
 }
 
 /* ------------- Projects ------------- */

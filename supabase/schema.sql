@@ -10,8 +10,19 @@ create table if not exists public.members (
   role text not null,
   status text not null default 'Available',
   avatar_color text not null default 'blue',
+  auth_user_id uuid references auth.users(id) on delete cascade,
   created_at timestamptz not null default now()
 );
+
+alter table public.members
+  add column if not exists auth_user_id uuid references auth.users(id) on delete cascade;
+
+alter table public.members
+  add column if not exists avatar_url text;
+
+create unique index if not exists members_user_self_unique
+  on public.members(user_id)
+  where auth_user_id is not null and auth_user_id = user_id;
 
 create table if not exists public.projects (
   id uuid primary key default gen_random_uuid(),
@@ -84,102 +95,50 @@ create policy "task_assignees_owner_all" on public.task_assignees
     exists (select 1 from public.tasks t where t.id = task_assignees.task_id and t.user_id = auth.uid())
   );
 
--- Seed helper: call once per signed-in user to populate starter data.
-create or replace function public.seed_default_board()
-returns void
+-- Ensure the signed-in user is represented as a Member on their own board
+-- so they can be picked as a task assignee. Idempotent across logins.
+create or replace function public.ensure_self_member(
+  display_name text default null,
+  role text default 'Owner',
+  avatar_color text default 'blue'
+)
+returns uuid
 language plpgsql
 security definer
 set search_path = public
 as $$
 declare
   uid uuid := auth.uid();
-  p_bench uuid;
-  p_internal uuid;
-  p_client uuid;
-  m_alex uuid;
-  m_jordan uuid;
-  m_sam uuid;
-  m_morgan uuid;
-  t1 uuid;
-  t2 uuid;
-  t3 uuid;
-  t4 uuid;
-  t5 uuid;
+  mid uuid;
+  resolved_name text;
 begin
   if uid is null then
     raise exception 'Not authenticated';
   end if;
 
-  -- Only seed if the user has no projects yet.
-  if exists (select 1 from public.projects where user_id = uid) then
-    return;
+  select id into mid
+  from public.members
+  where user_id = uid and auth_user_id = uid
+  limit 1;
+
+  if mid is not null then
+    return mid;
   end if;
 
-  insert into public.members (user_id, name, role, status, avatar_color)
-  values
-    (uid, 'Alex Rivera', 'Full Stack Dev', 'Available', 'blue')
-  returning id into m_alex;
+  resolved_name := coalesce(
+    nullif(trim(display_name), ''),
+    (select u.raw_user_meta_data ->> 'full_name' from auth.users u where u.id = uid),
+    (select u.raw_user_meta_data ->> 'name' from auth.users u where u.id = uid),
+    (select split_part(u.email, '@', 1) from auth.users u where u.id = uid),
+    'Me'
+  );
 
-  insert into public.members (user_id, name, role, status, avatar_color)
-  values
-    (uid, 'Jordan Lee', 'UI/UX Designer', 'On Project', 'orange')
-  returning id into m_jordan;
+  insert into public.members (user_id, auth_user_id, name, role, status, avatar_color)
+  values (uid, uid, resolved_name, role, 'Available', avatar_color)
+  returning id into mid;
 
-  insert into public.members (user_id, name, role, status, avatar_color)
-  values
-    (uid, 'Sam Chen', 'Backend Dev', 'Partially Available', 'teal')
-  returning id into m_sam;
-
-  insert into public.members (user_id, name, role, status, avatar_color)
-  values
-    (uid, 'Morgan Davis', 'QA Engineer', 'Available', 'violet')
-  returning id into m_morgan;
-
-  insert into public.projects (user_id, name, description, color, status, lead_id)
-  values (uid, 'Bench Ops', 'Internal bench operations and ops automation.', 'blue', 'In Progress', m_alex)
-  returning id into p_bench;
-
-  insert into public.projects (user_id, name, description, color, status, lead_id)
-  values (uid, 'Internal Tools', 'Shared tooling for the Zeal team.', 'teal', 'Planning', m_sam)
-  returning id into p_internal;
-
-  insert into public.projects (user_id, name, description, color, status, lead_id)
-  values (uid, 'Client Portal v2', 'Revamp of the external client portal.', 'orange', 'Planning', m_jordan)
-  returning id into p_client;
-
-  insert into public.member_projects (member_id, project_id) values
-    (m_jordan, p_bench),
-    (m_sam, p_internal),
-    (m_sam, p_bench);
-
-  insert into public.tasks (user_id, title, priority, status_column, due_date, project_id, position)
-  values (uid, 'Define project scope', 'High', 'To Do', date '2026-04-20', p_bench, 0)
-  returning id into t1;
-
-  insert into public.tasks (user_id, title, priority, status_column, due_date, project_id, position)
-  values (uid, 'Identify stakeholders', 'Medium', 'To Do', date '2026-04-30', p_bench, 1)
-  returning id into t2;
-
-  insert into public.tasks (user_id, title, priority, status_column, due_date, project_id, position)
-  values (uid, 'Set up project repo', 'Medium', 'To Do', null, p_internal, 2)
-  returning id into t3;
-
-  insert into public.tasks (user_id, title, priority, status_column, due_date, project_id, position)
-  values (uid, 'Draft initial requirements', 'High', 'In Progress', date '2026-04-18', p_bench, 0)
-  returning id into t4;
-
-  insert into public.tasks (user_id, title, priority, status_column, due_date, project_id, position)
-  values (uid, 'Schedule kickoff meeting', 'Low', 'Done', date '2026-04-10', null, 0)
-  returning id into t5;
-
-  insert into public.task_assignees (task_id, member_id) values
-    (t1, m_alex),
-    (t1, m_jordan),
-    (t2, m_alex),
-    (t4, m_jordan),
-    (t4, m_sam),
-    (t5, m_morgan);
+  return mid;
 end;
 $$;
 
-grant execute on function public.seed_default_board() to authenticated;
+grant execute on function public.ensure_self_member(text, text, text) to authenticated;

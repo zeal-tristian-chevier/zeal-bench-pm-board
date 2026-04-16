@@ -2,11 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { BoardData } from "@/lib/data";
-import {
-  createMember,
-  deleteMember,
-  updateMember,
-} from "@/lib/data";
+import { createMember, deleteMember, updateMember } from "@/lib/data";
 import {
   MEMBER_STATUSES,
   type Member,
@@ -14,7 +10,14 @@ import {
   type SwatchColor,
 } from "@/lib/types";
 import { MEMBER_STATUS_HEX, SWATCH_HEX, initialsOf } from "@/lib/theme";
-import { Chip, Dot, Field, Modal, MultiChipPicker, SwatchPicker } from "./primitives";
+import {
+  Chip,
+  Dot,
+  Field,
+  Modal,
+  MultiChipPicker,
+  SwatchPicker,
+} from "./primitives";
 
 export default function TeamTab({
   data,
@@ -49,6 +52,7 @@ export default function TeamTab({
       const optimistic: Member = {
         id: `tmp-${Date.now()}`,
         ...input,
+        avatar_url: null,
         created_at: new Date().toISOString(),
       };
       setMembers([...members, optimistic]);
@@ -82,20 +86,39 @@ export default function TeamTab({
   return (
     <div>
       <div
+        className="reveal"
         style={{
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
+          marginBottom: 28,
           flexWrap: "wrap",
-          gap: 10,
-          marginBottom: 14,
+          gap: 16,
         }}
       >
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+        <div
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            gap: 20,
+            alignItems: "center",
+          }}
+        >
+          <span className="meta">Status Legend</span>
           {MEMBER_STATUSES.map((s) => (
-            <Chip key={s} color={MEMBER_STATUS_HEX[s]}>
+            <span
+              key={s}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 8,
+                fontSize: 12,
+                color: "var(--on-surface-variant)",
+              }}
+            >
+              <Dot color={MEMBER_STATUS_HEX[s]} />
               {s}
-            </Chip>
+            </span>
           ))}
         </div>
         <button
@@ -111,22 +134,35 @@ export default function TeamTab({
 
       {members.length === 0 ? (
         <div
-          className="surface"
+          className="surface-well"
           style={{
-            padding: 24,
+            padding: 48,
             textAlign: "center",
-            color: "var(--text-muted)",
-            fontSize: 13,
+            color: "var(--on-surface-variant)",
           }}
         >
-          No team members yet. Add your first one.
+          <div className="eyebrow" style={{ marginBottom: 10 }}>
+            Bench Empty
+          </div>
+          <div style={{ fontSize: 15, marginBottom: 16 }}>
+            No team members yet. Add your first producer.
+          </div>
+          <button
+            className="btn btn-primary"
+            onClick={() => {
+              setEditing(null);
+              setOpen(true);
+            }}
+          >
+            + Add first member
+          </button>
         </div>
       ) : (
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
-            gap: 12,
+            gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))",
+            gap: 20,
           }}
         >
           {members.map((m) => {
@@ -136,29 +172,101 @@ export default function TeamTab({
             return (
               <div
                 key={m.id}
-                className="surface card"
-                style={{ padding: 14, display: "flex", flexDirection: "column", gap: 10 }}
+                className="surface-card"
+                style={{
+                  padding: 22,
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 18,
+                  position: "relative",
+                  overflow: "hidden",
+                  transition: "box-shadow 0.18s ease, transform 0.18s ease",
+                }}
+                onMouseOver={(e) => {
+                  e.currentTarget.style.boxShadow =
+                    "var(--shadow-card-hover)";
+                  e.currentTarget.style.transform = "translateY(-2px)";
+                }}
+                onMouseOut={(e) => {
+                  e.currentTarget.style.boxShadow =
+                    "var(--shadow-editorial)";
+                  e.currentTarget.style.transform = "translateY(0)";
+                }}
               >
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <span
-                    className="avatar"
-                    style={{
-                      width: 40,
-                      height: 40,
-                      fontSize: 13,
-                      background: SWATCH_HEX[m.avatar_color],
-                      border: "none",
-                    }}
-                  >
-                    {initialsOf(m.name)}
-                  </span>
+                <div
+                  style={{
+                    position: "absolute",
+                    top: 0,
+                    bottom: 0,
+                    left: 0,
+                    width: 3,
+                    background: SWATCH_HEX[m.avatar_color],
+                  }}
+                />
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 14,
+                  }}
+                >
+                  {m.avatar_url ? (
+                    <img
+                      src={m.avatar_url}
+                      alt={m.name}
+                      referrerPolicy="no-referrer"
+                      style={{
+                        width: 48,
+                        height: 48,
+                        borderRadius: 999,
+                        objectFit: "cover",
+                        boxShadow: "0 0 0 2px var(--surface-lowest)",
+                        display: "block",
+                        flexShrink: 0,
+                      }}
+                    />
+                  ) : (
+                    <span
+                      className="avatar"
+                      style={{
+                        width: 48,
+                        height: 48,
+                        fontSize: 13,
+                        background: SWATCH_HEX[m.avatar_color],
+                      }}
+                    >
+                      {initialsOf(m.name)}
+                    </span>
+                  )}
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 600, fontSize: 14 }}>{m.name}</div>
-                    <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                    <div
+                      style={{
+                        fontSize: 17,
+                        fontWeight: 700,
+                        letterSpacing: "-0.015em",
+                        color: "var(--on-primary-fixed)",
+                        lineHeight: 1.15,
+                      }}
+                    >
+                      {m.name}
+                    </div>
+                    <div
+                      style={{
+                        fontSize: 11,
+                        fontWeight: 600,
+                        color: "var(--on-surface-subtle)",
+                        textTransform: "uppercase",
+                        letterSpacing: "0.1em",
+                        marginTop: 3,
+                      }}
+                    >
                       {m.role}
                     </div>
                   </div>
-                  <div className="card-hover-actions" style={{ display: "flex", gap: 2 }}>
+                  <div
+                    className="card-hover-actions"
+                    style={{ display: "flex", gap: 2 }}
+                  >
                     <button
                       className="icon-btn"
                       aria-label="Edit"
@@ -167,11 +275,16 @@ export default function TeamTab({
                         setOpen(true);
                       }}
                     >
-                      <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
+                      <svg
+                        width="14"
+                        height="14"
+                        viewBox="0 0 16 16"
+                        fill="none"
+                      >
                         <path
                           d="M11.5 2.5l2 2L5 13H3v-2l8.5-8.5z"
                           stroke="currentColor"
-                          strokeWidth="1.25"
+                          strokeWidth="1.4"
                           strokeLinejoin="round"
                         />
                       </svg>
@@ -182,11 +295,16 @@ export default function TeamTab({
                       aria-label="Remove"
                       onClick={() => handleRemove(m.id)}
                     >
-                      <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
+                      <svg
+                        width="14"
+                        height="14"
+                        viewBox="0 0 16 16"
+                        fill="none"
+                      >
                         <path
                           d="M3 4h10M6 4V3a1 1 0 011-1h2a1 1 0 011 1v1M5 4l.5 9h5L11 4"
                           stroke="currentColor"
-                          strokeWidth="1.25"
+                          strokeWidth="1.4"
                           strokeLinecap="round"
                           strokeLinejoin="round"
                         />
@@ -195,21 +313,65 @@ export default function TeamTab({
                   </div>
                 </div>
 
-                <Chip color={MEMBER_STATUS_HEX[m.status]}>{m.status}</Chip>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    padding: "12px 14px",
+                    background: "var(--surface-low)",
+                    borderRadius: "var(--radius)",
+                  }}
+                >
+                  <span
+                    style={{
+                      fontSize: 10,
+                      fontWeight: 800,
+                      letterSpacing: "0.14em",
+                      textTransform: "uppercase",
+                      color: "var(--on-surface-subtle)",
+                    }}
+                  >
+                    Status
+                  </span>
+                  <Chip color={MEMBER_STATUS_HEX[m.status]}>{m.status}</Chip>
+                </div>
 
-                {memberProjects.length > 0 ? (
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                    {memberProjects.map((p) => (
-                      <Chip key={p.id} color={SWATCH_HEX[p.color]}>
-                        {p.name}
-                      </Chip>
-                    ))}
+                <div>
+                  <div
+                    style={{
+                      fontSize: 10,
+                      fontWeight: 800,
+                      letterSpacing: "0.14em",
+                      textTransform: "uppercase",
+                      color: "var(--on-surface-subtle)",
+                      marginBottom: 10,
+                    }}
+                  >
+                    Assignments
                   </div>
-                ) : (
-                  <div style={{ fontSize: 12, color: "var(--text-subtle)" }}>
-                    Not assigned to any projects
-                  </div>
-                )}
+                  {memberProjects.length > 0 ? (
+                    <div
+                      style={{ display: "flex", flexWrap: "wrap", gap: 6 }}
+                    >
+                      {memberProjects.map((p) => (
+                        <Chip key={p.id} color={SWATCH_HEX[p.color]}>
+                          {p.name}
+                        </Chip>
+                      ))}
+                    </div>
+                  ) : (
+                    <div
+                      style={{
+                        fontSize: 13,
+                        fontStyle: "italic",
+                        color: "var(--on-surface-subtle)",
+                      }}
+                    >
+                      On the bench.
+                    </div>
+                  )}
+                </div>
               </div>
             );
           })}
@@ -286,10 +448,11 @@ function MemberModal({
     <Modal
       open={open}
       onClose={onClose}
-      title={member ? "Edit member" : "Add team member"}
+      eyebrow={member ? "Edit Member" : "Bench Addition"}
+      title={member ? member.name : "Add team member"}
       footer={
         <>
-          <button className="btn" onClick={onClose}>
+          <button className="btn btn-ghost" onClick={onClose}>
             Cancel
           </button>
           <button
@@ -297,18 +460,21 @@ function MemberModal({
             onClick={submit}
             disabled={saving || !name.trim() || !role.trim()}
           >
-            {saving ? "Saving…" : member ? "Save" : "Add"}
+            {saving ? "Saving…" : member ? "Save changes" : "Add member"}
           </button>
         </>
       }
     >
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+      <div
+        style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}
+      >
         <Field label="Name">
           <input
             className="input"
             value={name}
             onChange={(e) => setName(e.target.value)}
             autoFocus
+            placeholder="Full name"
           />
         </Field>
         <Field label="Role">
@@ -331,17 +497,18 @@ function MemberModal({
               className="chip"
               style={{
                 cursor: "pointer",
-                borderColor:
-                  status === s
-                    ? `color-mix(in oklab, ${MEMBER_STATUS_HEX[s]} 60%, var(--border))`
-                    : undefined,
                 background:
                   status === s
-                    ? `color-mix(in oklab, ${MEMBER_STATUS_HEX[s]} 18%, var(--surface))`
-                    : undefined,
+                    ? `color-mix(in oklab, ${MEMBER_STATUS_HEX[s]} 20%, var(--surface-lowest))`
+                    : "var(--surface-lowest)",
+                color: `color-mix(in oklab, ${MEMBER_STATUS_HEX[s]} 80%, var(--on-primary-fixed))`,
+                boxShadow:
+                  status === s
+                    ? `inset 0 0 0 2px ${MEMBER_STATUS_HEX[s]}`
+                    : "inset 0 0 0 1px var(--ghost-border)",
               }}
             >
-              <Dot color={MEMBER_STATUS_HEX[s]} />
+              <Dot color={MEMBER_STATUS_HEX[s]} size={6} />
               {s}
             </button>
           ))}
@@ -349,17 +516,14 @@ function MemberModal({
       </Field>
 
       <Field label="Avatar color">
-        <div
-          style={{ display: "flex", alignItems: "center", gap: 12 }}
-        >
+        <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
           <span
             className="avatar"
             style={{
-              width: 36,
-              height: 36,
-              fontSize: 12,
+              width: 44,
+              height: 44,
+              fontSize: 14,
               background: SWATCH_HEX[avatarColor],
-              border: "none",
             }}
           >
             {initialsOf(name || "NA")}

@@ -20,18 +20,18 @@ An interactive Kanban-style project management board built with Next.js, Supabas
    ```
 2. Create a Supabase project at [supabase.com](https://supabase.com).
 3. In the Supabase dashboard → **Authentication → Providers → Google**, enable Google and paste your OAuth client ID / secret from Google Cloud Console. Add the redirect URL it shows (`https://<ref>.supabase.co/auth/v1/callback`) to Google Cloud.
-4. Run `supabase/schema.sql` in the Supabase SQL editor to create tables, RLS policies, and the `seed_default_board()` helper.
+4. Run `supabase/schema.sql` in the Supabase SQL editor to create tables and RLS policies.
 5. Copy `.env.example` to `.env.local` and fill in:
    ```
    NEXT_PUBLIC_SUPABASE_URL=...
-   NEXT_PUBLIC_SUPABASE_ANON_KEY=...
+   NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=...
    NEXT_PUBLIC_SITE_URL=http://localhost:3000
    ```
 6. Run the dev server:
    ```bash
    npm run dev
    ```
-7. Sign in, then click **Load demo data** once to seed projects, members, and the sample tasks.
+7. Sign in. Add projects, members, and tasks from the board UI.
 
 ## Stack
 

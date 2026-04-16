@@ -6,13 +6,13 @@ export async function proxy(request: NextRequest) {
 
   const hasEnv =
     !!process.env.NEXT_PUBLIC_SUPABASE_URL &&
-    !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    !!process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
 
   if (!hasEnv) return response;
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
     {
       cookies: {
         getAll() {
