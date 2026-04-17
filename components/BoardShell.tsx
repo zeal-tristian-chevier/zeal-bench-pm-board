@@ -156,16 +156,6 @@ export default function BoardShell({
             >
               Import Standup
             </button>
-            <button
-              className="btn btn-sm btn-danger"
-              onClick={() => {
-                setWipeInput("");
-                setWipeOpen(true);
-              }}
-              disabled={wiping}
-            >
-              {wiping ? "Clearing…" : "Clear board"}
-            </button>
             <span
               style={{
                 fontSize: 12,
