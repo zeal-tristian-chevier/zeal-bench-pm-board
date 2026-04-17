@@ -123,10 +123,14 @@ export async function wipeMyData(): Promise<void> {
   const supabase = createClient();
   const { data: user } = await supabase.auth.getUser();
   if (!user.user) throw new Error("Not authenticated");
-  const uid = user.user.id;
 
+  // Shared public board: wipe every row, not just the caller's.
+  // Supabase requires a filter on delete(), so match any non-null id.
   const del = async (table: string) => {
-    const { error } = await supabase.from(table).delete().eq("user_id", uid);
+    const { error } = await supabase
+      .from(table)
+      .delete()
+      .not("id", "is", null);
     if (error) throw error;
   };
   // task_assignees + member_projects cascade from tasks/members delete

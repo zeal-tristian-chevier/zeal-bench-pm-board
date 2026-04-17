@@ -345,8 +345,8 @@ function WipeConfirmModal({
               margin: 0,
             }}
           >
-            Every project, member, and task on your board will be permanently
-            deleted. This cannot be undone.
+            Every project, member, and task on the shared board will be
+            permanently deleted for everyone. This cannot be undone.
           </p>
         </div>
 

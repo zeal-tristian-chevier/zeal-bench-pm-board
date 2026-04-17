@@ -41,5 +41,6 @@ An interactive Kanban-style project management board built with Next.js, Supabas
 
 ## Notes
 
-- All data is per-user; Row Level Security policies in `supabase/schema.sql` restrict each row to its owning `auth.uid()`.
+- This is a **single shared public board**. Every signed-in user reads and writes the same projects, members, and tasks. Row Level Security still blocks anonymous visitors — policies in `supabase/schema.sql` grant `for all to authenticated using (true)`. The `user_id` column is kept for attribution only.
+- If you already applied the old per-user schema, run `supabase/migrate-to-shared-board.sql` in the Supabase SQL editor to replace the owner-only policies with shared ones.
 - The board uses optimistic updates for drag/drop, create, update, and delete.

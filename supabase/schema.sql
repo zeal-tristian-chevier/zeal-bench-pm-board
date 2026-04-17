@@ -65,35 +65,40 @@ alter table public.member_projects enable row level security;
 alter table public.tasks enable row level security;
 alter table public.task_assignees enable row level security;
 
--- Owner-only policies: the row's user_id must equal the caller.
+-- Shared public board: any authenticated user can read and write every row.
+-- The `user_id` column is retained for audit/attribution, not access control.
+-- Anonymous visitors are still blocked because each policy targets the
+-- `authenticated` role.
+
 drop policy if exists "members_owner_all" on public.members;
-create policy "members_owner_all" on public.members
-  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+drop policy if exists "members_shared_all" on public.members;
+create policy "members_shared_all" on public.members
+  for all to authenticated
+  using (true) with check (true);
 
 drop policy if exists "projects_owner_all" on public.projects;
-create policy "projects_owner_all" on public.projects
-  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+drop policy if exists "projects_shared_all" on public.projects;
+create policy "projects_shared_all" on public.projects
+  for all to authenticated
+  using (true) with check (true);
 
 drop policy if exists "tasks_owner_all" on public.tasks;
-create policy "tasks_owner_all" on public.tasks
-  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+drop policy if exists "tasks_shared_all" on public.tasks;
+create policy "tasks_shared_all" on public.tasks
+  for all to authenticated
+  using (true) with check (true);
 
--- Join tables: allow when caller owns either side.
 drop policy if exists "member_projects_owner_all" on public.member_projects;
-create policy "member_projects_owner_all" on public.member_projects
-  for all using (
-    exists (select 1 from public.members m where m.id = member_projects.member_id and m.user_id = auth.uid())
-  ) with check (
-    exists (select 1 from public.members m where m.id = member_projects.member_id and m.user_id = auth.uid())
-  );
+drop policy if exists "member_projects_shared_all" on public.member_projects;
+create policy "member_projects_shared_all" on public.member_projects
+  for all to authenticated
+  using (true) with check (true);
 
 drop policy if exists "task_assignees_owner_all" on public.task_assignees;
-create policy "task_assignees_owner_all" on public.task_assignees
-  for all using (
-    exists (select 1 from public.tasks t where t.id = task_assignees.task_id and t.user_id = auth.uid())
-  ) with check (
-    exists (select 1 from public.tasks t where t.id = task_assignees.task_id and t.user_id = auth.uid())
-  );
+drop policy if exists "task_assignees_shared_all" on public.task_assignees;
+create policy "task_assignees_shared_all" on public.task_assignees
+  for all to authenticated
+  using (true) with check (true);
 
 -- Ensure the signed-in user is represented as a Member on their own board
 -- so they can be picked as a task assignee. Idempotent across logins.
