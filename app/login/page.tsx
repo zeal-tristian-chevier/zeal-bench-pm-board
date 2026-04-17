@@ -1,15 +1,50 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { useSupabaseReachability } from "@/lib/useSupabaseReachability";
+import {
+  ReachabilityBanner,
+  TroubleshootPanel,
+} from "@/components/ReachabilityHelp";
 
 export default function LoginPage() {
-  const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [helpOpen, setHelpOpen] = useState(false);
+
+  // Preflight: can the browser reach Supabase? If a user's VPN/DNS/ad-blocker
+  // is blocking it, surface actionable guidance instead of a dead spinner.
+  const { state: reachability, recheck } = useSupabaseReachability({
+    context: "login",
+  });
+
+  // Auto-prompt: if the Google flow doesn't redirect the browser within ~10s,
+  // something's silently wrong — pop the troubleshooter open so the user has
+  // the self-service fix list right there.
+  const stuckTimer = useRef<number | null>(null);
+  useEffect(() => {
+    return () => {
+      if (stuckTimer.current !== null) {
+        window.clearTimeout(stuckTimer.current);
+      }
+    };
+  }, []);
 
   async function signInWithGoogle() {
-    setLoading(true);
+    setGoogleLoading(true);
     setError(null);
+
+    // If we're still sitting on this page 10 seconds after click, the
+    // browser hasn't navigated to Google — almost always a network issue.
+    // Open the troubleshooter automatically and re-probe reachability so
+    // the user gets fresh signal.
+    if (stuckTimer.current !== null) window.clearTimeout(stuckTimer.current);
+    stuckTimer.current = window.setTimeout(() => {
+      setHelpOpen(true);
+      void recheck();
+    }, 10_000);
+
     try {
       const supabase = createClient();
       const origin =
@@ -22,8 +57,13 @@ export default function LoginPage() {
       });
       if (error) throw error;
     } catch (e) {
+      if (stuckTimer.current !== null) {
+        window.clearTimeout(stuckTimer.current);
+        stuckTimer.current = null;
+      }
       setError(e instanceof Error ? e.message : "Sign-in failed");
-      setLoading(false);
+      setGoogleLoading(false);
+      setHelpOpen(true);
     }
   }
 
@@ -50,7 +90,8 @@ export default function LoginPage() {
           flexDirection: "column",
           justifyContent: "center",
           alignItems: "flex-end",
-          padding: "40px 56px",
+          padding: "28px 48px",
+          overflowY: "auto",
         }}
       >
         <div style={{ width: "100%", maxWidth: 460 }}>
@@ -89,12 +130,12 @@ export default function LoginPage() {
 
           <h1
             style={{
-              fontSize: "clamp(44px, 5.2vw, 68px)",
+              fontSize: "clamp(34px, 3.8vw, 48px)",
               fontWeight: 800,
-              letterSpacing: "-0.035em",
-              lineHeight: 0.96,
+              letterSpacing: "-0.03em",
+              lineHeight: 1,
               color: "var(--on-primary-fixed)",
-              marginBottom: 20,
+              marginBottom: 14,
             }}
           >
             Build with{" "}
@@ -105,10 +146,10 @@ export default function LoginPage() {
 
           <p
             style={{
-              fontSize: 15,
+              fontSize: 13.5,
               lineHeight: 1.55,
               color: "var(--on-surface-variant)",
-              marginBottom: 32,
+              marginBottom: 22,
               maxWidth: 420,
             }}
           >
@@ -117,38 +158,63 @@ export default function LoginPage() {
           </p>
 
           <button
+            type="button"
             className="btn btn-primary btn-lg"
             onClick={signInWithGoogle}
-            disabled={loading}
-            style={{ boxShadow: "var(--shadow-float)" }}
+            disabled={googleLoading}
+            style={{
+              width: "100%",
+              justifyContent: "center",
+              marginTop: 6,
+              boxShadow: "var(--shadow-float)",
+            }}
           >
             <GoogleIcon />
-            <span>{loading ? "Redirecting…" : "Sign in with Google"}</span>
+            <span>
+              {googleLoading ? "Redirecting…" : "Continue with Google"}
+            </span>
           </button>
+
+          {reachability === "unreachable" ? (
+            <div style={{ marginTop: 18 }}>
+              <ReachabilityBanner
+                variant="login"
+                onOpenHelp={() => setHelpOpen(true)}
+              />
+            </div>
+          ) : null}
 
           {error ? (
             <div
+              role="alert"
               style={{
                 marginTop: 18,
                 fontSize: 12,
                 color: "var(--secondary)",
-                padding: "8px 12px",
+                padding: "10px 14px",
                 background: "var(--error-container)",
                 borderRadius: "var(--radius)",
-                display: "inline-block",
               }}
             >
               {error}
             </div>
           ) : null}
 
+          <div style={{ marginTop: 18 }}>
+            <TroubleshootPanel
+              open={helpOpen}
+              onToggle={() => setHelpOpen((v) => !v)}
+              reachability={reachability}
+            />
+          </div>
+
           <div
             style={{
               display: "grid",
               gridTemplateColumns: "repeat(3, 1fr)",
               gap: 24,
-              marginTop: 56,
-              paddingTop: 28,
+              marginTop: 28,
+              paddingTop: 20,
               borderTop: "1px solid var(--ghost-border)",
             }}
           >

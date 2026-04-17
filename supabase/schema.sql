@@ -147,3 +147,109 @@ end;
 $$;
 
 grant execute on function public.ensure_self_member(text, text, text) to authenticated;
+
+-- Seed the board with a starter set of members / projects / tasks so a fresh
+-- sign-in lands on something that actually looks like a tool. Idempotent
+-- per-user: bails if the caller already owns any projects.
+--
+-- Note on the shared-board model: this function keys off the caller's user_id
+-- when deciding whether to seed. With shared RLS (see migrate-to-shared-board.sql)
+-- every authenticated user can see every row, so only the *first* user to sign
+-- in will actually seed — subsequent users will see the existing rows but the
+-- `exists(... where user_id = uid)` guard above returns false for them, which
+-- means they'd re-seed and create duplicate demo data. If you want truly
+-- once-per-board seeding, change that guard to `exists (select 1 from public.projects)`
+-- with no user_id filter.
+create or replace function public.seed_default_board()
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  uid uuid := auth.uid();
+  p_bench uuid;
+  p_internal uuid;
+  p_client uuid;
+  m_alex uuid;
+  m_jordan uuid;
+  m_sam uuid;
+  m_morgan uuid;
+  t1 uuid;
+  t2 uuid;
+  t3 uuid;
+  t4 uuid;
+  t5 uuid;
+begin
+  if uid is null then
+    raise exception 'Not authenticated';
+  end if;
+
+  if exists (select 1 from public.projects where user_id = uid) then
+    return;
+  end if;
+
+  insert into public.members (user_id, name, role, status, avatar_color)
+  values (uid, 'Alex Rivera', 'Full Stack Dev', 'Available', 'blue')
+  returning id into m_alex;
+
+  insert into public.members (user_id, name, role, status, avatar_color)
+  values (uid, 'Jordan Lee', 'UI/UX Designer', 'On Project', 'orange')
+  returning id into m_jordan;
+
+  insert into public.members (user_id, name, role, status, avatar_color)
+  values (uid, 'Sam Chen', 'Backend Dev', 'Partially Available', 'teal')
+  returning id into m_sam;
+
+  insert into public.members (user_id, name, role, status, avatar_color)
+  values (uid, 'Morgan Davis', 'QA Engineer', 'Available', 'violet')
+  returning id into m_morgan;
+
+  insert into public.projects (user_id, name, description, color, status, lead_id)
+  values (uid, 'Bench Ops', 'Internal bench operations and ops automation.', 'blue', 'In Progress', m_alex)
+  returning id into p_bench;
+
+  insert into public.projects (user_id, name, description, color, status, lead_id)
+  values (uid, 'Internal Tools', 'Shared tooling for the Zeal team.', 'teal', 'Planning', m_sam)
+  returning id into p_internal;
+
+  insert into public.projects (user_id, name, description, color, status, lead_id)
+  values (uid, 'Client Portal v2', 'Revamp of the external client portal.', 'orange', 'Planning', m_jordan)
+  returning id into p_client;
+
+  insert into public.member_projects (member_id, project_id) values
+    (m_jordan, p_bench),
+    (m_sam, p_internal),
+    (m_sam, p_bench);
+
+  insert into public.tasks (user_id, title, priority, status_column, due_date, project_id, position)
+  values (uid, 'Define project scope', 'High', 'To Do', date '2026-04-20', p_bench, 0)
+  returning id into t1;
+
+  insert into public.tasks (user_id, title, priority, status_column, due_date, project_id, position)
+  values (uid, 'Identify stakeholders', 'Medium', 'To Do', date '2026-04-30', p_bench, 1)
+  returning id into t2;
+
+  insert into public.tasks (user_id, title, priority, status_column, due_date, project_id, position)
+  values (uid, 'Set up project repo', 'Medium', 'To Do', null, p_internal, 2)
+  returning id into t3;
+
+  insert into public.tasks (user_id, title, priority, status_column, due_date, project_id, position)
+  values (uid, 'Draft initial requirements', 'High', 'In Progress', date '2026-04-18', p_bench, 0)
+  returning id into t4;
+
+  insert into public.tasks (user_id, title, priority, status_column, due_date, project_id, position)
+  values (uid, 'Schedule kickoff meeting', 'Low', 'Done', date '2026-04-10', null, 0)
+  returning id into t5;
+
+  insert into public.task_assignees (task_id, member_id) values
+    (t1, m_alex),
+    (t1, m_jordan),
+    (t2, m_alex),
+    (t4, m_jordan),
+    (t4, m_sam),
+    (t5, m_morgan);
+end;
+$$;
+
+grant execute on function public.seed_default_board() to authenticated;

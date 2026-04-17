@@ -47,6 +47,8 @@ export default function TeamTab({
       } catch (err) {
         console.error(err);
         setMembers(prev);
+        // Rethrow so the modal stays open and the caller can surface the error.
+        throw err;
       }
     } else {
       const optimistic: Member = {
@@ -65,6 +67,7 @@ export default function TeamTab({
       } catch (err) {
         console.error(err);
         setMembers(prev);
+        throw err;
       }
     }
     setOpen(false);
@@ -417,6 +420,7 @@ function MemberModal({
   const [avatarColor, setAvatarColor] = useState<SwatchColor>("blue");
   const [projectIds, setProjectIds] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   useEffect(() => {
     if (open) {
@@ -425,12 +429,14 @@ function MemberModal({
       setStatus(member?.status ?? "Available");
       setAvatarColor(member?.avatar_color ?? "blue");
       setProjectIds(member?.project_ids ?? []);
+      setSaveError(null);
     }
   }, [open, member]);
 
   async function submit() {
     if (!name.trim() || !role.trim()) return;
     setSaving(true);
+    setSaveError(null);
     try {
       await onSave({
         name: name.trim(),
@@ -439,6 +445,10 @@ function MemberModal({
         avatar_color: avatarColor,
         project_ids: projectIds,
       });
+    } catch (err) {
+      setSaveError(
+        err instanceof Error ? err.message : "Couldn’t save changes.",
+      );
     } finally {
       setSaving(false);
     }
@@ -465,6 +475,25 @@ function MemberModal({
         </>
       }
     >
+      {saveError ? (
+        <div
+          role="alert"
+          style={{
+            padding: "10px 14px",
+            borderRadius: "var(--radius)",
+            background:
+              "color-mix(in oklab, var(--secondary) 16%, var(--surface-lowest))",
+            color:
+              "color-mix(in oklab, var(--secondary) 80%, var(--on-primary-fixed))",
+            fontSize: 12.5,
+            lineHeight: 1.5,
+            boxShadow: "inset 0 0 0 1px var(--ghost-border)",
+          }}
+        >
+          {saveError}
+        </div>
+      ) : null}
+
       <div
         style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}
       >

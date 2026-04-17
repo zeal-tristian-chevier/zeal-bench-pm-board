@@ -4,6 +4,14 @@ import { NextResponse, type NextRequest } from "next/server";
 export async function proxy(request: NextRequest) {
   let response = NextResponse.next({ request });
 
+  // Bypass auth probing entirely for the connectivity telemetry beacon — it
+  // exists specifically to be reachable when Supabase isn't, so we must not
+  // call supabase.auth.getUser() here (it would hang on the same DNS/VPN
+  // issue the beacon is reporting).
+  if (request.nextUrl.pathname.startsWith("/api/telemetry/")) {
+    return response;
+  }
+
   const hasEnv =
     !!process.env.NEXT_PUBLIC_SUPABASE_URL &&
     !!process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;

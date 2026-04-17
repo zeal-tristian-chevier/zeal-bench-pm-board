@@ -24,11 +24,27 @@ export async function loadAll(): Promise<BoardData> {
   const supabase = createClient();
 
   const [projectsRes, membersRes, tasksRes, mpRes, taRes] = await Promise.all([
-    supabase.from("projects").select("*").order("created_at"),
-    supabase.from("members").select("*").order("created_at"),
-    supabase.from("tasks").select("*").order("position"),
-    supabase.from("member_projects").select("*"),
-    supabase.from("task_assignees").select("*"),
+    supabase
+      .from("projects")
+      .select(
+        "id,name,description,color,status,lead_id,created_at",
+      )
+      .order("created_at"),
+    supabase
+      .from("members")
+      .select(
+        "id,name,role,status,avatar_color,avatar_url,created_at",
+      )
+      .order("created_at"),
+    supabase
+      .from("tasks")
+      .select(
+        "id,title,priority,status_column,due_date,project_id,position,created_at",
+      )
+      .order("position")
+      .order("created_at"),
+    supabase.from("member_projects").select("member_id,project_id"),
+    supabase.from("task_assignees").select("task_id,member_id"),
   ]);
 
   for (const r of [projectsRes, membersRes, tasksRes, mpRes, taRes]) {
@@ -65,7 +81,7 @@ export async function loadAll(): Promise<BoardData> {
     created_at: p.created_at as string,
   }));
 
-  const members: Member[] = (membersRes.data ?? []).map((m: Row<Member>) => ({
+  const members: Member[] = (membersRes.data ?? []).map((m) => ({
     id: m.id,
     name: m.name,
     role: m.role,
@@ -76,7 +92,7 @@ export async function loadAll(): Promise<BoardData> {
     created_at: m.created_at as string,
   }));
 
-  const tasks: Task[] = (tasksRes.data ?? []).map((t: Row<Task>) => ({
+  const tasks: Task[] = (tasksRes.data ?? []).map((t) => ({
     id: t.id,
     title: t.title,
     priority: t.priority as Priority,
@@ -163,10 +179,139 @@ export async function createProject(input: {
   return data as Project;
 }
 
+export async function updateProject(
+  id: string,
+  input: {
+    name: string;
+    description: string;
+    color: SwatchColor;
+    status: ProjectStatus;
+    lead_id: string | null;
+  },
+): Promise<Project> {
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from("projects")
+    .update({
+      name: input.name,
+      description: input.description,
+      color: input.color,
+      status: input.status,
+      lead_id: input.lead_id,
+    })
+    .eq("id", id)
+    .select()
+    .single();
+  if (error) throw error;
+  if (!data) {
+    throw new Error(
+      "Update was not applied. You may not have permission to edit this project.",
+    );
+  }
+  const row = data as Row<Project>;
+  return {
+    id: row.id,
+    name: row.name,
+    description: (row.description as string | null) ?? null,
+    color: row.color as SwatchColor,
+    status: row.status as ProjectStatus,
+    lead_id: (row.lead_id as string | null) ?? null,
+    created_at: row.created_at as string,
+  };
+}
+
 export async function deleteProject(id: string) {
   const supabase = createClient();
   const { error } = await supabase.from("projects").delete().eq("id", id);
   if (error) throw error;
+}
+
+export async function consolidateProjects(input: {
+  source_ids: string[];
+  new_project: {
+    name: string;
+    description: string;
+    color: SwatchColor;
+    status: ProjectStatus;
+    lead_id: string | null;
+  };
+}): Promise<{
+  project: Project;
+  reassigned_task_ids: string[];
+  member_ids: string[];
+}> {
+  if (input.source_ids.length < 2) {
+    throw new Error("Pick at least two projects to consolidate.");
+  }
+  const supabase = createClient();
+  const { data: userRes } = await supabase.auth.getUser();
+  if (!userRes.user) throw new Error("Not authenticated");
+
+  const { data: created, error: createErr } = await supabase
+    .from("projects")
+    .insert({ ...input.new_project, user_id: userRes.user.id })
+    .select()
+    .single();
+  if (createErr) throw createErr;
+  const newProject: Project = {
+    id: (created as Row<Project>).id,
+    name: (created as Row<Project>).name,
+    description: ((created as Row<Project>).description as string | null) ?? null,
+    color: (created as Row<Project>).color as SwatchColor,
+    status: (created as Row<Project>).status as ProjectStatus,
+    lead_id:
+      ((created as Row<Project>).lead_id as string | null) ?? null,
+    created_at: (created as Row<Project>).created_at as string,
+  };
+
+  // Reassign every task currently pointing at a source project to the new one.
+  // Done before deleting sources to avoid the ON DELETE SET NULL losing the link.
+  const { data: tasksData, error: tasksErr } = await supabase
+    .from("tasks")
+    .update({ project_id: newProject.id })
+    .in("project_id", input.source_ids)
+    .select("id");
+  if (tasksErr) throw tasksErr;
+  const reassignedIds = ((tasksData ?? []) as Row<{ id: string }>[]).map(
+    (t) => t.id,
+  );
+
+  // Union every member that was linked to any of the source projects so the
+  // consolidated project inherits the combined team.
+  const { data: mpRows, error: mpErr } = await supabase
+    .from("member_projects")
+    .select("member_id")
+    .in("project_id", input.source_ids);
+  if (mpErr) throw mpErr;
+  const memberIds = Array.from(
+    new Set(
+      ((mpRows ?? []) as Row<{ member_id: string }>[]).map((r) => r.member_id),
+    ),
+  );
+  if (memberIds.length > 0) {
+    const { error: insErr } = await supabase
+      .from("member_projects")
+      .upsert(
+        memberIds.map((mid) => ({
+          member_id: mid,
+          project_id: newProject.id,
+        })),
+        { onConflict: "member_id,project_id" },
+      );
+    if (insErr) throw insErr;
+  }
+
+  const { error: delErr } = await supabase
+    .from("projects")
+    .delete()
+    .in("id", input.source_ids);
+  if (delErr) throw delErr;
+
+  return {
+    project: newProject,
+    reassigned_task_ids: reassignedIds,
+    member_ids: memberIds,
+  };
 }
 
 /* ------------- Members ------------- */
@@ -208,7 +353,10 @@ export async function updateMember(
   },
 ) {
   const supabase = createClient();
-  const { error } = await supabase
+  // Select back the row so a silent RLS-filtered update (no error but zero
+  // rows touched) can be detected and surfaced, instead of the modal closing
+  // as if the save succeeded and losing the edit on refresh.
+  const { data, error } = await supabase
     .from("members")
     .update({
       name: input.name,
@@ -216,8 +364,14 @@ export async function updateMember(
       status: input.status,
       avatar_color: input.avatar_color,
     })
-    .eq("id", id);
+    .eq("id", id)
+    .select("id");
   if (error) throw error;
+  if (!data || data.length === 0) {
+    throw new Error(
+      "Update was not applied. You may not have permission to edit this member.",
+    );
+  }
   await setMemberProjects(id, input.project_ids);
 }
 

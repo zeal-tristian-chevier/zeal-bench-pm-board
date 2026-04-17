@@ -2,9 +2,15 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { BoardData } from "@/lib/data";
-import { createProject, deleteProject } from "@/lib/data";
+import {
+  consolidateProjects,
+  createProject,
+  deleteProject,
+  updateProject,
+} from "@/lib/data";
 import {
   PROJECT_STATUSES,
+  type Member,
   type Project,
   type ProjectStatus,
   type SwatchColor,
@@ -22,35 +28,161 @@ import { Chip, Field, Modal, SwatchPicker } from "./primitives";
 export default function ProjectsTab({
   data,
   setProjects,
+  setTasks,
+  setMembers,
 }: {
   data: BoardData;
   setProjects: (projects: Project[]) => void;
+  setTasks: (tasks: Task[]) => void;
+  setMembers: (members: Member[]) => void;
 }) {
   const { projects, members, tasks } = data;
-  const [open, setOpen] = useState(false);
+  // `null` = closed, `"new"` = create mode, else editing that project.
+  const [modalState, setModalState] = useState<Project | "new" | null>(null);
+  const open = modalState !== null;
+  const editingProject = modalState === "new" ? null : modalState;
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [consolidateOpen, setConsolidateOpen] = useState(false);
 
-  async function handleCreate(input: {
+  // Drop any stale selections if a project disappears (deleted elsewhere, etc.)
+  useEffect(() => {
+    const live = new Set(projects.map((p) => p.id));
+    setSelectedIds((ids) => ids.filter((id) => live.has(id)));
+  }, [projects]);
+
+  function exitSelectMode() {
+    setSelectMode(false);
+    setSelectedIds([]);
+  }
+
+  function toggleSelected(id: string) {
+    setSelectedIds((ids) =>
+      ids.includes(id) ? ids.filter((v) => v !== id) : [...ids, id],
+    );
+  }
+
+  async function handleConsolidate(input: {
     name: string;
     description: string;
     status: ProjectStatus;
     color: SwatchColor;
     lead_id: string | null;
   }) {
-    const optimistic: Project = {
-      id: `tmp-${Date.now()}`,
+    const sources = selectedIds.slice();
+    if (sources.length < 2) return;
+    const prevProjects = projects;
+    const prevTasks = tasks;
+    const prevMembers = members;
+
+    const sourceSet = new Set(sources);
+    const tempId = `tmp-${Date.now()}`;
+    const optimisticProject: Project = {
+      id: tempId,
       ...input,
       created_at: new Date().toISOString(),
     };
-    const prev = projects;
-    setProjects([...projects, optimistic]);
+
+    setProjects([
+      ...projects.filter((p) => !sourceSet.has(p.id)),
+      optimisticProject,
+    ]);
+    setTasks(
+      tasks.map((t) =>
+        t.project_id && sourceSet.has(t.project_id)
+          ? { ...t, project_id: tempId }
+          : t,
+      ),
+    );
+    setMembers(
+      members.map((m) => {
+        const touched = m.project_ids.some((pid) => sourceSet.has(pid));
+        if (!touched) return m;
+        const next = m.project_ids.filter((pid) => !sourceSet.has(pid));
+        next.push(tempId);
+        return { ...m, project_ids: next };
+      }),
+    );
+
     try {
-      const created = await createProject(input);
-      setProjects([...projects, created]);
+      const { project } = await consolidateProjects({
+        source_ids: sources,
+        new_project: input,
+      });
+      // Swap the optimistic temp id for the real row id everywhere.
+      setProjects([
+        ...prevProjects.filter((p) => !sourceSet.has(p.id)),
+        project,
+      ]);
+      setTasks(
+        prevTasks.map((t) =>
+          t.project_id && sourceSet.has(t.project_id)
+            ? { ...t, project_id: project.id }
+            : t,
+        ),
+      );
+      setMembers(
+        prevMembers.map((m) => {
+          const touched = m.project_ids.some((pid) => sourceSet.has(pid));
+          if (!touched) return m;
+          const next = m.project_ids.filter((pid) => !sourceSet.has(pid));
+          next.push(project.id);
+          return { ...m, project_ids: next };
+        }),
+      );
+      setConsolidateOpen(false);
+      exitSelectMode();
     } catch (err) {
       console.error(err);
-      setProjects(prev);
+      setProjects(prevProjects);
+      setTasks(prevTasks);
+      setMembers(prevMembers);
+      alert(
+        err instanceof Error
+          ? `Consolidation failed: ${err.message}`
+          : "Consolidation failed.",
+      );
     }
-    setOpen(false);
+  }
+
+  async function handleSave(input: {
+    name: string;
+    description: string;
+    status: ProjectStatus;
+    color: SwatchColor;
+    lead_id: string | null;
+  }) {
+    const prev = projects;
+    if (editingProject) {
+      const targetId = editingProject.id;
+      setProjects(
+        projects.map((p) => (p.id === targetId ? { ...p, ...input } : p)),
+      );
+      try {
+        const updated = await updateProject(targetId, input);
+        setProjects(prev.map((p) => (p.id === targetId ? updated : p)));
+      } catch (err) {
+        console.error(err);
+        setProjects(prev);
+        throw err;
+      }
+    } else {
+      const optimistic: Project = {
+        id: `tmp-${Date.now()}`,
+        ...input,
+        created_at: new Date().toISOString(),
+      };
+      setProjects([...projects, optimistic]);
+      try {
+        const created = await createProject(input);
+        setProjects([...prev, created]);
+      } catch (err) {
+        console.error(err);
+        setProjects(prev);
+        throw err;
+      }
+    }
+    setModalState(null);
   }
 
   async function handleRemove(id: string) {
@@ -115,10 +247,83 @@ export default function ProjectsTab({
             {projects.length === 1 ? "project in print" : "projects in print"}
           </div>
         </div>
-        <button className="btn btn-primary" onClick={() => setOpen(true)}>
-          + Add Project
-        </button>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          {projects.length >= 2 ? (
+            <button
+              className="btn btn-sm"
+              onClick={() => {
+                if (selectMode) exitSelectMode();
+                else setSelectMode(true);
+              }}
+              style={
+                selectMode
+                  ? {
+                      background: "var(--surface-container)",
+                      color: "var(--on-primary-fixed)",
+                      fontWeight: 600,
+                    }
+                  : undefined
+              }
+              aria-pressed={selectMode}
+              title="Merge multiple projects into a new one"
+            >
+              {selectMode ? "Cancel" : "Consolidate"}
+            </button>
+          ) : null}
+          <button
+            className="btn btn-primary"
+            onClick={() => setModalState("new")}
+          >
+            + Add Project
+          </button>
+        </div>
       </div>
+
+      {selectMode ? (
+        <div
+          className="surface-quiet ghost-outline reveal"
+          style={{
+            padding: "14px 20px",
+            marginBottom: 24,
+            display: "flex",
+            alignItems: "center",
+            gap: 14,
+            flexWrap: "wrap",
+          }}
+          role="status"
+          aria-live="polite"
+        >
+          <span
+            className="chip"
+            style={{
+              background: "var(--primary-tint)",
+              color: "#fff",
+              fontWeight: 700,
+              letterSpacing: "0.08em",
+            }}
+          >
+            {selectedIds.length} selected
+          </span>
+          <span
+            style={{
+              fontSize: 13,
+              color: "var(--on-surface-variant)",
+              fontStyle: "italic",
+            }}
+          >
+            Tap the projects you want to merge, then choose a name for the
+            combined project. Tasks and team members come along.
+          </span>
+          <div style={{ flex: 1 }} />
+          <button
+            className="btn btn-primary"
+            onClick={() => setConsolidateOpen(true)}
+            disabled={selectedIds.length < 2}
+          >
+            Consolidate {selectedIds.length >= 2 ? selectedIds.length : ""} →
+          </button>
+        </div>
+      ) : null}
 
       {projects.length === 0 ? (
         <div
@@ -135,7 +340,10 @@ export default function ProjectsTab({
           <div style={{ fontSize: 15, marginBottom: 16 }}>
             Add your first project to start composing the ledger.
           </div>
-          <button className="btn btn-primary" onClick={() => setOpen(true)}>
+          <button
+            className="btn btn-primary"
+            onClick={() => setModalState("new")}
+          >
             + Add your first project
           </button>
         </div>
@@ -164,23 +372,49 @@ export default function ProjectsTab({
                 const memberList = members.filter((m) =>
                   m.project_ids.includes(p.id),
                 );
+                const selected = selectedIds.includes(p.id);
                 return (
                   <div
                     key={p.id}
                     className="surface-card"
+                    role={selectMode ? "button" : undefined}
+                    aria-pressed={selectMode ? selected : undefined}
+                    tabIndex={selectMode ? 0 : undefined}
+                    onClick={
+                      selectMode ? () => toggleSelected(p.id) : undefined
+                    }
+                    onKeyDown={
+                      selectMode
+                        ? (e) => {
+                            if (e.key === " " || e.key === "Enter") {
+                              e.preventDefault();
+                              toggleSelected(p.id);
+                            }
+                          }
+                        : undefined
+                    }
                     style={{
                       padding: 24,
                       position: "relative",
                       overflow: "hidden",
+                      cursor: selectMode ? "pointer" : undefined,
+                      boxShadow: selected
+                        ? `0 0 0 2px ${color}, var(--shadow-card-hover)`
+                        : undefined,
                       transition:
                         "box-shadow 0.18s ease, transform 0.18s ease",
                     }}
                     onMouseOver={(e) => {
+                      if (selected) return;
                       e.currentTarget.style.boxShadow =
                         "var(--shadow-card-hover)";
                       e.currentTarget.style.transform = "translateY(-2px)";
                     }}
                     onMouseOut={(e) => {
+                      if (selected) {
+                        e.currentTarget.style.transform = "translateY(0)";
+                        return;
+                      }
                       e.currentTarget.style.boxShadow =
                         "var(--shadow-editorial)";
                       e.currentTarget.style.transform = "translateY(0)";
@@ -203,27 +437,61 @@ export default function ProjectsTab({
                       >
                         {p.status}
                       </Chip>
-                      <button
-                        className="icon-btn card-hover-actions"
-                        data-danger="true"
-                        aria-label="Remove project"
-                        onClick={() => handleRemove(p.id)}
-                      >
-                        <svg
-                          width="14"
-                          height="14"
-                          viewBox="0 0 16 16"
-                          fill="none"
+                      {selectMode ? (
+                        <SelectCheck selected={selected} color={color} />
+                      ) : (
+                        <div
+                          className="card-hover-actions"
+                          style={{ display: "flex", gap: 2 }}
                         >
-                          <path
-                            d="M3 4h10M6 4V3a1 1 0 011-1h2a1 1 0 011 1v1M5 4l.5 9h5L11 4"
-                            stroke="currentColor"
-                            strokeWidth="1.4"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          />
-                        </svg>
-                      </button>
+                          <button
+                            className="icon-btn"
+                            aria-label="Edit project"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setModalState(p);
+                            }}
+                          >
+                            <svg
+                              width="14"
+                              height="14"
+                              viewBox="0 0 16 16"
+                              fill="none"
+                            >
+                              <path
+                                d="M11.5 2.5l2 2L5 13H3v-2l8.5-8.5z"
+                                stroke="currentColor"
+                                strokeWidth="1.4"
+                                strokeLinejoin="round"
+                              />
+                            </svg>
+                          </button>
+                          <button
+                            className="icon-btn"
+                            data-danger="true"
+                            aria-label="Remove project"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleRemove(p.id);
+                            }}
+                          >
+                            <svg
+                              width="14"
+                              height="14"
+                              viewBox="0 0 16 16"
+                              fill="none"
+                            >
+                              <path
+                                d="M3 4h10M6 4V3a1 1 0 011-1h2a1 1 0 011 1v1M5 4l.5 9h5L11 4"
+                                stroke="currentColor"
+                                strokeWidth="1.4"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                              />
+                            </svg>
+                          </button>
+                        </div>
+                      )}
                     </div>
 
                     <h3
@@ -464,11 +732,61 @@ export default function ProjectsTab({
 
       <ProjectModal
         open={open}
-        onClose={() => setOpen(false)}
+        project={editingProject}
+        onClose={() => setModalState(null)}
         members={members}
-        onCreate={handleCreate}
+        onSave={handleSave}
+      />
+
+      <ConsolidateModal
+        open={consolidateOpen}
+        onClose={() => setConsolidateOpen(false)}
+        sources={projects.filter((p) => selectedIds.includes(p.id))}
+        tasks={tasks}
+        members={members}
+        onSubmit={handleConsolidate}
       />
     </div>
+  );
+}
+
+function SelectCheck({
+  selected,
+  color,
+}: {
+  selected: boolean;
+  color: string;
+}) {
+  return (
+    <span
+      aria-hidden="true"
+      style={{
+        width: 24,
+        height: 24,
+        borderRadius: 999,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        background: selected ? color : "var(--surface-lowest)",
+        color: selected ? "#fff" : "var(--on-surface-subtle)",
+        boxShadow: selected
+          ? `0 0 0 2px color-mix(in oklab, ${color} 30%, transparent)`
+          : "inset 0 0 0 1.5px var(--ghost-border-strong)",
+        transition: "background 0.12s ease, box-shadow 0.12s ease",
+      }}
+    >
+      {selected ? (
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+          <path
+            d="M3.5 8.5l3 3 6-6.5"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      ) : null}
+    </span>
   );
 }
 
@@ -858,14 +1176,16 @@ function timeAgo(iso: string): string {
 
 function ProjectModal({
   open,
+  project,
   onClose,
   members,
-  onCreate,
+  onSave,
 }: {
   open: boolean;
+  project: Project | null;
   onClose: () => void;
   members: BoardData["members"];
-  onCreate: (input: {
+  onSave: (input: {
     name: string;
     description: string;
     status: ProjectStatus;
@@ -879,42 +1199,51 @@ function ProjectModal({
   const [color, setColor] = useState<SwatchColor>("blue");
   const [leadId, setLeadId] = useState<string>("");
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   useEffect(() => {
     if (open) {
-      setName("");
-      setDescription("");
-      setStatus("Planning");
-      setColor("blue");
-      setLeadId("");
+      setName(project?.name ?? "");
+      setDescription(project?.description ?? "");
+      setStatus(project?.status ?? "Planning");
+      setColor(project?.color ?? "blue");
+      setLeadId(project?.lead_id ?? "");
+      setSaveError(null);
     }
-  }, [open]);
+  }, [open, project]);
 
   async function submit() {
     if (!name.trim()) return;
     setSaving(true);
+    setSaveError(null);
     try {
-      await onCreate({
+      await onSave({
         name: name.trim(),
         description: description.trim(),
         status,
         color,
         lead_id: leadId || null,
       });
+    } catch (err) {
+      setSaveError(
+        err instanceof Error ? err.message : "Couldn’t save changes.",
+      );
     } finally {
       setSaving(false);
     }
   }
 
+  const isEdit = project !== null;
+
   return (
     <Modal
       open={open}
-      onClose={onClose}
-      eyebrow="New Project"
-      title="Compose a project"
+      onClose={saving ? () => {} : onClose}
+      eyebrow={isEdit ? "Edit Project" : "New Project"}
+      title={isEdit ? project.name : "Compose a project"}
       footer={
         <>
-          <button className="btn btn-ghost" onClick={onClose}>
+          <button className="btn btn-ghost" onClick={onClose} disabled={saving}>
             Cancel
           </button>
           <button
@@ -922,11 +1251,30 @@ function ProjectModal({
             onClick={submit}
             disabled={saving || !name.trim()}
           >
-            {saving ? "Saving…" : "Add project"}
+            {saving ? "Saving…" : isEdit ? "Save changes" : "Add project"}
           </button>
         </>
       }
     >
+      {saveError ? (
+        <div
+          role="alert"
+          style={{
+            padding: "10px 14px",
+            borderRadius: "var(--radius)",
+            background:
+              "color-mix(in oklab, var(--secondary) 16%, var(--surface-lowest))",
+            color:
+              "color-mix(in oklab, var(--secondary) 80%, var(--on-primary-fixed))",
+            fontSize: 12.5,
+            lineHeight: 1.5,
+            boxShadow: "inset 0 0 0 1px var(--ghost-border)",
+          }}
+        >
+          {saveError}
+        </div>
+      ) : null}
+
       <Field label="Name">
         <input
           className="input"
@@ -983,4 +1331,257 @@ function ProjectModal({
       </Field>
     </Modal>
   );
+}
+
+function ConsolidateModal({
+  open,
+  onClose,
+  sources,
+  tasks,
+  members,
+  onSubmit,
+}: {
+  open: boolean;
+  onClose: () => void;
+  sources: Project[];
+  tasks: Task[];
+  members: Member[];
+  onSubmit: (input: {
+    name: string;
+    description: string;
+    status: ProjectStatus;
+    color: SwatchColor;
+    lead_id: string | null;
+  }) => Promise<void>;
+}) {
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [status, setStatus] = useState<ProjectStatus>("In Progress");
+  const [color, setColor] = useState<SwatchColor>("blue");
+  const [leadId, setLeadId] = useState<string>("");
+  const [saving, setSaving] = useState(false);
+
+  const sourceIds = useMemo(() => sources.map((s) => s.id), [sources]);
+  const sourceSet = useMemo(() => new Set(sourceIds), [sourceIds]);
+  const taskCount = useMemo(
+    () => tasks.filter((t) => t.project_id && sourceSet.has(t.project_id)).length,
+    [tasks, sourceSet],
+  );
+  const memberCount = useMemo(() => {
+    const ids = new Set<string>();
+    for (const m of members) {
+      if (m.project_ids.some((pid) => sourceSet.has(pid))) ids.add(m.id);
+    }
+    return ids.size;
+  }, [members, sourceSet]);
+
+  // Suggest a combined name + inherit the most common color from the sources
+  // so users get a sensible starting point they can still overwrite.
+  useEffect(() => {
+    if (!open) return;
+    const suggestedName = suggestConsolidatedName(sources);
+    setName(suggestedName);
+    setDescription("");
+    setStatus(pickDominantStatus(sources));
+    setColor(pickDominantColor(sources));
+    const leads = sources
+      .map((s) => s.lead_id)
+      .filter((v): v is string => Boolean(v));
+    setLeadId(leads[0] ?? "");
+  }, [open, sources]);
+
+  async function submit() {
+    if (!name.trim() || sources.length < 2 || saving) return;
+    setSaving(true);
+    try {
+      await onSubmit({
+        name: name.trim(),
+        description: description.trim(),
+        status,
+        color,
+        lead_id: leadId || null,
+      });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Modal
+      open={open}
+      onClose={saving ? () => {} : onClose}
+      eyebrow="Consolidate Projects"
+      title={`Merge ${sources.length} projects into one`}
+      size="lg"
+      footer={
+        <>
+          <button
+            className="btn btn-ghost"
+            onClick={onClose}
+            disabled={saving}
+          >
+            Cancel
+          </button>
+          <button
+            className="btn btn-primary"
+            onClick={submit}
+            disabled={saving || !name.trim() || sources.length < 2}
+          >
+            {saving ? "Consolidating…" : "Consolidate"}
+          </button>
+        </>
+      }
+    >
+      <div
+        className="surface-well"
+        style={{
+          padding: 16,
+          display: "flex",
+          flexDirection: "column",
+          gap: 10,
+        }}
+      >
+        <div className="eyebrow">Sources</div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+          {sources.map((s) => (
+            <Chip key={s.id} color={SWATCH_HEX[s.color]} variant="tonal">
+              {s.name}
+            </Chip>
+          ))}
+        </div>
+        <div
+          style={{
+            display: "flex",
+            gap: 18,
+            fontSize: 12,
+            color: "var(--on-surface-variant)",
+            marginTop: 4,
+          }}
+        >
+          <span>
+            <strong style={{ color: "var(--on-primary-fixed)" }}>
+              {taskCount}
+            </strong>{" "}
+            task{taskCount === 1 ? "" : "s"} will be reassigned
+          </span>
+          <span>
+            <strong style={{ color: "var(--on-primary-fixed)" }}>
+              {memberCount}
+            </strong>{" "}
+            member{memberCount === 1 ? "" : "s"} will carry over
+          </span>
+        </div>
+        <div
+          style={{
+            fontSize: 11,
+            color: "var(--on-surface-subtle)",
+            lineHeight: 1.5,
+            marginTop: 2,
+          }}
+        >
+          The source projects will be deleted after their tasks and team
+          assignments are moved to the new project. This can&apos;t be undone.
+        </div>
+      </div>
+
+      <Field label="New project name">
+        <input
+          className="input"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          autoFocus
+          placeholder="e.g. Certifications"
+        />
+      </Field>
+      <Field label="Description">
+        <textarea
+          className="textarea"
+          rows={3}
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          placeholder="Optional — what does this consolidated project cover?"
+        />
+      </Field>
+
+      <div
+        style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}
+      >
+        <Field label="Status">
+          <select
+            className="select"
+            value={status}
+            onChange={(e) => setStatus(e.target.value as ProjectStatus)}
+          >
+            {PROJECT_STATUSES.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Lead">
+          <select
+            className="select"
+            value={leadId}
+            onChange={(e) => setLeadId(e.target.value)}
+          >
+            <option value="">No lead</option>
+            {members.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.name}
+              </option>
+            ))}
+          </select>
+        </Field>
+      </div>
+
+      <Field label="Color">
+        <SwatchPicker value={color} onChange={setColor} />
+      </Field>
+    </Modal>
+  );
+}
+
+function suggestConsolidatedName(sources: Project[]): string {
+  if (sources.length === 0) return "";
+  const names = sources.map((s) => s.name.trim()).filter(Boolean);
+  if (names.length === 0) return "";
+  // Look for a shared trailing word like "Certs" across "AWS Certs" + "Azure Certs".
+  const tokenized = names.map((n) => n.split(/\s+/));
+  const lastTokens = tokenized.map((t) => t[t.length - 1]?.toLowerCase() ?? "");
+  const sharedSuffix = lastTokens.every((t) => t && t === lastTokens[0])
+    ? tokenized[0][tokenized[0].length - 1]
+    : "";
+  if (sharedSuffix) return sharedSuffix;
+  return names.slice(0, 2).join(" + ");
+}
+
+function pickDominantColor(sources: Project[]): SwatchColor {
+  if (sources.length === 0) return "blue";
+  const counts = new Map<SwatchColor, number>();
+  for (const s of sources) counts.set(s.color, (counts.get(s.color) ?? 0) + 1);
+  let best: SwatchColor = sources[0].color;
+  let bestN = 0;
+  for (const [c, n] of counts) {
+    if (n > bestN) {
+      best = c;
+      bestN = n;
+    }
+  }
+  return best;
+}
+
+function pickDominantStatus(sources: Project[]): ProjectStatus {
+  if (sources.length === 0) return "Planning";
+  const ranked: ProjectStatus[] = [
+    "In Progress",
+    "Planning",
+    "On Hold",
+    "Complete",
+    "Cancelled",
+  ];
+  for (const s of ranked) {
+    if (sources.some((src) => src.status === s)) return s;
+  }
+  return "Planning";
 }

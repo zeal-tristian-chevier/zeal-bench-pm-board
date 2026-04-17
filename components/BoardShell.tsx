@@ -9,6 +9,8 @@ import BoardTab from "./BoardTab";
 import TeamTab from "./TeamTab";
 import ProjectsTab from "./ProjectsTab";
 import ImportStandupModal from "./ImportStandupModal";
+import { AppConnectivityAlert } from "./ReachabilityHelp";
+import { useSupabaseReachability } from "@/lib/useSupabaseReachability";
 
 type Tab = "Board" | "Projects" | "Team";
 
@@ -46,6 +48,14 @@ export default function BoardShell({
   const [wiping, setWiping] = useState(false);
   const [wipeOpen, setWipeOpen] = useState(false);
   const [wipeInput, setWipeInput] = useState("");
+
+  // Keep probing Supabase once a minute while the board is open. If the user
+  // toggles on a VPN (or loses DNS) mid-session, we want a banner instead of
+  // mystery "nothing saves" behavior.
+  const { state: reachability } = useSupabaseReachability({
+    context: "board",
+    intervalMs: 60_000,
+  });
 
   const refresh = useCallback(async () => {
     try {
@@ -209,6 +219,12 @@ export default function BoardShell({
           padding: "44px 32px 96px",
         }}
       >
+        {reachability === "unreachable" ? (
+          <div style={{ marginBottom: 28 }}>
+            <AppConnectivityAlert reachability={reachability} />
+          </div>
+        ) : null}
+
         {/* Page header */}
         <section
           className="reveal"
@@ -260,7 +276,12 @@ export default function BoardShell({
               <TeamTab data={data} setMembers={setMembers} />
             ) : null}
             {tab === "Projects" ? (
-              <ProjectsTab data={data} setProjects={setProjects} />
+              <ProjectsTab
+                data={data}
+                setProjects={setProjects}
+                setTasks={setTasks}
+                setMembers={setMembers}
+              />
             ) : null}
           </>
         ) : null}
