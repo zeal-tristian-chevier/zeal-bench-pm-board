@@ -25,7 +25,6 @@ An interactive Kanban-style project management board built with Next.js, Supabas
    ```
    NEXT_PUBLIC_SUPABASE_URL=...
    NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=...
-   NEXT_PUBLIC_SITE_URL=http://localhost:3000
    ```
 6. Run the dev server:
    ```bash
