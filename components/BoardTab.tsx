@@ -515,7 +515,7 @@ export default function BoardTab({
           {hasAnyFilter ? " · filtered" : ""}
         </span>
         {hasAnyFilter ? (
-          <button className="btn btn-ghost btn-sm" onClick={clearFilters}>
+          <button disabled className="btn btn-ghost btn-sm" onClick={clearFilters}>
             Clear all
           </button>
         ) : null}
